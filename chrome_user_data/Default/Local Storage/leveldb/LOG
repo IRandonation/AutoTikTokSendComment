@@ -1,0 +1,22 @@
+2025/12/01-12:33:41.738 3c94 Reusing MANIFEST D:\Project\Dy_Send\chrome_user_data\Default\Local Storage\leveldb/MANIFEST-000001
+2025/12/01-12:33:41.754 3c94 Recovering log #43
+2025/12/01-12:33:41.758 3c94 Level-0 table #46: started
+2025/12/01-12:33:41.771 3c94 Level-0 table #46: 30743 bytes OK
+2025/12/01-12:33:41.772 3c94 Recovering log #45
+2025/12/01-12:33:41.777 3c94 Reusing old log D:\Project\Dy_Send\chrome_user_data\Default\Local Storage\leveldb/000045.log 
+2025/12/01-12:33:41.787 3c94 Delete type=0 #43
+2025/12/01-12:33:41.791 6520 Compacting 4@0 + 1@1 files
+2025/12/01-12:33:41.809 6520 Generated table #47@0: 126 keys, 54438 bytes
+2025/12/01-12:33:41.810 6520 Compacted 4@0 + 1@1 files => 54438 bytes
+2025/12/01-12:33:41.812 6520 compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/12/01-12:33:41.814 6520 Delete type=2 #36
+2025/12/01-12:33:41.814 6520 Delete type=2 #39
+2025/12/01-12:33:41.814 6520 Delete type=2 #41
+2025/12/01-12:33:41.814 6520 Delete type=2 #44
+2025/12/01-12:33:41.815 6520 Delete type=2 #46
+2025/12/01-12:33:50.820 6520 Level-0 table #49: started
+2025/12/01-12:33:50.826 6520 Level-0 table #49: 35055 bytes OK
+2025/12/01-12:33:50.829 6520 Delete type=0 #45
+2025/12/01-12:34:41.806 6520 Level-0 table #51: started
+2025/12/01-12:34:41.814 6520 Level-0 table #51: 30661 bytes OK
+2025/12/01-12:34:41.819 6520 Delete type=0 #48

@@ -1,0 +1,8 @@
+2025/12/01-12:28:47.787 5988 Reusing MANIFEST D:\Project\Dy_Send\chrome_user_data\Default\Local Storage\leveldb/MANIFEST-000001
+2025/12/01-12:28:47.826 5988 Recovering log #40
+2025/12/01-12:28:47.837 5988 Reusing old log D:\Project\Dy_Send\chrome_user_data\Default\Local Storage\leveldb/000040.log 
+2025/12/01-12:28:56.204 4e80 Level-0 table #44: started
+2025/12/01-12:28:56.210 4e80 Level-0 table #44: 35031 bytes OK
+2025/12/01-12:28:56.214 4e80 Delete type=0 #40
+2025/12/01-12:29:25.376 12a4 Level-0 table #46: started
+2025/12/01-12:29:25.398 12a4 Level-0 table #46: 30743 bytes OK
