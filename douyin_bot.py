@@ -22,10 +22,15 @@ class DouyinBot:
         self.comments_list = []
         self.current_comment_index = 0
 
-    def get_chrome_options(self):
+    def get_chrome_options(self, use_user_data=True):
         options = Options()
-        user_data_dir = os.path.join(os.getcwd(), "chrome_user_data")
-        options.add_argument(f"--user-data-dir={user_data_dir}")
+        if use_user_data:
+            user_data_dir = os.path.join(os.getcwd(), "chrome_user_data")
+            options.add_argument(f"--user-data-dir={user_data_dir}")
+            logger.info(f"Configuration: Using Persistent Profile at {user_data_dir}")
+        else:
+            logger.info("Configuration: Using Temporary Profile (No Login Saved)")
+
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-blink-features=AutomationControlled")
@@ -38,16 +43,43 @@ class DouyinBot:
             return
         
         logger.info("Initializing Chrome Driver...")
-        service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=service, options=self.get_chrome_options())
+
+        # Ensure DBUS env is set (fix for some macOS versions)
+        if "DBUS_SESSION_BUS_ADDRESS" not in os.environ:
+             os.environ["DBUS_SESSION_BUS_ADDRESS"] = "/dev/null"
+
+        try:
+            # Mode 1: Attempt to launch with saved user profile
+            logger.info("Mode 1: Attempting to launch with saved user profile...")
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=self.get_chrome_options(use_user_data=True))
+            logger.success("Success: Chrome launched with User Profile.")
+        except Exception as e:
+            logger.warning(f"Failed to launch with user profile: {e}")
+            logger.warning("Mode 2: Retrying with temporary profile (Login will not be saved)...")
+            try:
+                service = Service(ChromeDriverManager().install())
+                self.driver = webdriver.Chrome(service=service, options=self.get_chrome_options(use_user_data=False))
+                logger.success("Success: Chrome launched with Temporary Profile.")
+            except Exception as e2:
+                 logger.error(f"Critical: Failed to launch Chrome even with temp profile: {e2}")
+                 raise e2
         
-        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": """
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                })
-            """
-        })
+        if self.driver:
+            # Connectivity Check
+            try:
+                title = self.driver.title
+                logger.info(f"Browser Connectivity Check: OK (Current Title: '{title}')")
+            except Exception as e:
+                logger.error(f"Browser Connectivity Check Failed: {e}")
+
+            self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    })
+                """
+            })
 
     def open_url(self, url=None):
         if not self.driver:
@@ -130,6 +162,14 @@ class DouyinBot:
                     textarea.send_keys(Keys.ENTER)
                     logger.success(f"Sent (Enter): {msg}")
             else:
+                # Diagnostics: Check for login popup
+                try:
+                    login_text = self.driver.find_element(By.XPATH, "//*[contains(text(), '登录') or contains(text(), 'Login')]")
+                    if login_text.is_displayed():
+                        logger.warning("Operation Blocked: Login Popup detected! Please log in manually.")
+                except:
+                    pass
+
                 title = self.driver.title
                 url = self.driver.current_url
                 logger.warning(f"Chat input not found. Title: '{title}'")

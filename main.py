@@ -1,6 +1,8 @@
 import tkinter as tk
-from tkinter import messagebox, scrolledtext
+from tkinter import messagebox, scrolledtext, ttk
 import sys
+import json
+import os
 import threading
 from douyin_bot import DouyinBot
 from loguru import logger
@@ -32,10 +34,25 @@ class App:
         self.interval_var = tk.StringVar(value="10")
         self.single_msg_var = tk.StringVar()
         
+        self.presets = {}
+        self.load_presets()
+
         self.create_widgets()
         self.setup_logging()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def load_presets(self):
+        try:
+            file_path = os.path.join(os.getcwd(), "comments.json")
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    self.presets = json.load(f)
+            else:
+                self.presets = {}
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load presets: {e}")
+            self.presets = {}
 
     def create_widgets(self):
         # === Top Frame: Settings ===
@@ -57,6 +74,16 @@ class App:
         auto_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         tk.Label(auto_frame, text="弹幕列表 (一行一条，按顺序循环发送):").pack(anchor="w")
+        
+        # Preset Selection
+        preset_frame = tk.Frame(auto_frame)
+        preset_frame.pack(fill=tk.X, pady=2)
+        tk.Label(preset_frame, text="选择话术库 (Select Preset):").pack(side=tk.LEFT)
+        
+        self.preset_combobox = ttk.Combobox(preset_frame, values=list(self.presets.keys()), state="readonly")
+        self.preset_combobox.pack(side=tk.LEFT, padx=5)
+        self.preset_combobox.bind("<<ComboboxSelected>>", self.on_preset_change)
+
         self.comments_text = scrolledtext.ScrolledText(auto_frame, height=6)
         self.comments_text.pack(fill=tk.X, pady=5)
         self.comments_text.insert(tk.END, "主播好棒！\n666\n主播喝口水吧\n支持支持\n")
@@ -76,7 +103,7 @@ class App:
         tk.Button(manual_frame, text="立即发送", command=self.send_immediate).grid(row=0, column=2, padx=5)
         
         # Quick Like
-        tk.Button(manual_frame, text="快速点赞 (10次)", command=lambda: self.send_likes(10), bg="#fff9c4").grid(row=0, column=3, padx=20)
+        tk.Button(manual_frame, text="快速点赞 (50次)", command=lambda: self.send_likes(50), bg="#fff9c4").grid(row=0, column=3, padx=20)
 
         # === Log Area ===
         log_frame = tk.LabelFrame(self.root, text="运行日志 (Logs)", padx=10, pady=5)
@@ -89,6 +116,14 @@ class App:
         handler = TextHandler(self.log_text)
         logger.remove()
         logger.add(handler, format="{time:HH:mm:ss} | {level} | {message}")
+
+    def on_preset_change(self, event):
+        selected_name = self.preset_combobox.get()
+        if selected_name in self.presets:
+            comments = self.presets[selected_name]
+            self.comments_text.delete("1.0", tk.END)
+            self.comments_text.insert(tk.END, "\n".join(comments))
+            logger.info(f"已加载话术库: {selected_name}")
 
     def open_browser(self):
         url = self.url_var.get().strip()
