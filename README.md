@@ -1,8 +1,10 @@
 # 抖音直播自动弹幕助手 (Douyin Live Auto Sender) v2.0
+> 📱 **新增浏览器插件模式**：现已支持油猴脚本 (Tampermonkey)，支持 Windows/macOS/Linux/Android 等全平台使用！
 
-这是一个基于 Python + Selenium 的跨平台（Windows/macOS）自动化工具，用于在抖音直播间自动发送指定内容的弹幕。
+这是一个基于 Python + Selenium 的跨平台自动化工具，同时提供**油猴脚本 (UserScript)** 版本，用于在抖音直播间自动发送指定内容的弹幕。
 
 **v2.0 新特性：**
+*   🌐 **全平台支持 (New!)**：新增 Tampermonkey 油猴脚本，无需安装 Python，只要有浏览器就能用 (支持手机端浏览器)。
 *   🔄 **多条弹幕循环**：支持输入多行弹幕，程序会按顺序循环发送。
 *   🎲 **随机间隔**：发送间隔增加 ±20% 的随机波动，模拟真人操作，降低风控风险。
 *   🚀 **插队发送**：可以在循环发送过程中，随时手动插入一条立即发送的弹幕。
@@ -16,7 +18,30 @@
 *   **防检测机制**：集成基本的 Selenium 反爬虫屏蔽参数。
 *   **智能标签页切换**：自动识别并切换到最新的直播间标签页。
 
-## 🛠️ 依赖安装
+## 🌐 浏览器插件模式 (全平台通用)
+
+无需安装 Python 环境，只需安装浏览器扩展即可使用。支持 Chrome, Edge, Firefox, Safari 以及 Android 上的 KiWi/Yandex 浏览器。
+
+### 1. 安装油猴插件
+如果你还没有安装脚本管理器，请先安装：
+*   **Chrome/Edge**: 安装 [Tampermonkey](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+*   **Firefox**: 安装 [Tampermonkey](https://addons.mozilla.org/zh-CN/firefox/addon/tampermonkey/)
+*   **Android**: 使用 KiWi Browser 或 Yandex Browser 安装 Tampermonkey 扩展。
+
+### 2. 安装脚本
+1.  找到本项目中的 `douyin_auto_sender.user.js` 文件。
+2.  在浏览器中打开 Tampermonkey 管理面板 -> "添加新脚本"。
+3.  将文件内容复制进去并保存。
+4.  或者直接将文件拖入浏览器窗口进行安装。
+
+### 3. 使用方法
+1.  打开任意抖音直播间网页 (live.douyin.com 或 douyin.com)。
+2.  页面右侧会出现一个悬浮面板 "🤖 抖音自动弹幕"。
+3.  设置间隔、输入弹幕内容，点击 "开始运行" 即可。
+
+---
+
+## 🛠️ Python 桌面版依赖安装
 
 本项目使用 `uv` 进行包管理。首次运行时会自动建立虚拟环境并安装依赖。
 
