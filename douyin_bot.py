@@ -97,7 +97,17 @@ class DouyinBot:
             options = self.get_chrome_options(use_user_data=True)
             options.binary_location = chrome_binary_path
             
-            service = Service(ChromeDriverManager().install())
+            driver_path = ChromeDriverManager().install()
+            
+            # Fix for macOS: Ad-hoc sign the chromedriver if needed
+            if sys.platform == 'darwin':
+                try:
+                    logger.info(f"Attempting to sign chromedriver at {driver_path}")
+                    os.system(f"codesign --force --deep --sign - '{driver_path}'")
+                except Exception as e:
+                    logger.warning(f"Failed to sign chromedriver: {e}")
+
+            service = Service(driver_path)
             self.driver = webdriver.Chrome(service=service, options=options)
             logger.success("Success: Chrome launched with User Profile.")
         except Exception as e:
@@ -107,7 +117,17 @@ class DouyinBot:
                 options = self.get_chrome_options(use_user_data=False)
                 options.binary_location = chrome_binary_path
 
-                service = Service(ChromeDriverManager().install())
+                driver_path = ChromeDriverManager().install()
+                
+                # Fix for macOS: Ad-hoc sign the chromedriver if needed
+                if sys.platform == 'darwin':
+                    try:
+                        logger.info(f"Attempting to sign chromedriver at {driver_path}")
+                        os.system(f"codesign --force --deep --sign - '{driver_path}'")
+                    except Exception as e:
+                        logger.warning(f"Failed to sign chromedriver: {e}")
+
+                service = Service(driver_path)
                 self.driver = webdriver.Chrome(service=service, options=options)
                 logger.success("Success: Chrome launched with Temporary Profile.")
             except Exception as e2:
@@ -140,13 +160,56 @@ class DouyinBot:
              self.driver.get("https://www.douyin.com/")
 
     def _switch_to_latest_tab(self):
-        """Helper to switch to the latest opened tab"""
+        """
+        Helper to switch to the latest opened tab.
+        Prioritizes tabs with 'douyin.com' in the URL to avoid internal Chrome pages.
+        """
         if not self.driver:
             return
-        if len(self.driver.window_handles) > 1:
-            if self.driver.current_window_handle != self.driver.window_handles[-1]:
-                self.driver.switch_to.window(self.driver.window_handles[-1])
+        
+        try:
+            handles = self.driver.window_handles
+            if len(handles) > 1:
+                # 1. Try to find a Douyin tab
+                for handle in reversed(handles):
+                    self.driver.switch_to.window(handle)
+                    if "douyin.com" in self.driver.current_url:
+                         # Found a likely correct tab
+                         return
+                
+                # 2. Fallback to the last opened tab if no Douyin tab found
+                self.driver.switch_to.window(handles[-1])
                 logger.info(f"Switched to latest tab: {self.driver.title}")
+        except Exception as e:
+            logger.warning(f"Failed to switch tabs: {e}")
+
+    def set_native_value(self, element, value):
+        """
+        Helper to set value using JS to bypass React/Vue limitations.
+        Similar to the logic in the UserScript.
+        """
+        try:
+            self.driver.execute_script("""
+                var element = arguments[0];
+                var value = arguments[1];
+                var valueSetter = Object.getOwnPropertyDescriptor(element, 'value').set;
+                var prototype = Object.getPrototypeOf(element);
+                var prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
+
+                if (valueSetter && valueSetter !== prototypeValueSetter) {
+                    prototypeValueSetter.call(element, value);
+                } else {
+                    valueSetter.call(element, value);
+                }
+
+                element.value = value;
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+                element.dispatchEvent(new Event('change', { bubbles: true }));
+            """, element, value)
+        except Exception as e:
+            logger.warning(f"Native value set failed, falling back to send_keys: {e}")
+            element.clear()
+            element.send_keys(value)
 
     def send_comment_task(self, content=None):
         """
@@ -173,7 +236,8 @@ class DouyinBot:
             textarea = None
             xpaths = [
                 "//textarea[contains(@placeholder, '说点什么')]",
-                "//textarea[@class='webcast-room__chat_input_editor']",
+                "//textarea[contains(@class, 'webcast-room__chat_input_editor')]",
+                "//textarea[contains(@class, 'xgplayer-input-textarea')]",
                 "//textarea",
                 "//div[@contenteditable='true']"
             ]
@@ -183,33 +247,49 @@ class DouyinBot:
                     textarea = WebDriverWait(self.driver, 1).until(
                         EC.presence_of_element_located((By.XPATH, xpath))
                     )
-                    if textarea:
+                    if textarea and textarea.is_displayed() and textarea.is_enabled():
                         break
                 except:
                     continue
 
             if textarea:
-                if not textarea.is_enabled() or not textarea.is_displayed():
-                    logger.warning("Found chat box but it is not interactable.")
-                    return
-
                 textarea.click()
-                textarea.clear()
-                textarea.send_keys(msg)
-                time.sleep(0.2)
+                time.sleep(0.1)
+                
+                # Use robust value setting
+                self.set_native_value(textarea, msg)
+                
+                time.sleep(0.3) # Wait for UI to update
                 
                 send_btn = None
+                # Priority 1: Button with '发送' text
                 try:
                     send_btn = self.driver.find_element(By.XPATH, "//button[contains(text(), '发送')]")
                 except:
-                    pass
+                    # Priority 2: Class based
+                    try:
+                        send_btn = self.driver.find_element(By.CSS_SELECTOR, ".webcast-room__chat_send_btn")
+                    except:
+                        pass
                     
-                if send_btn:
-                    send_btn.click()
-                    logger.success(f"Sent: {msg}")
+                if send_btn and send_btn.is_displayed():
+                    # Check if enabled
+                    if not send_btn.is_enabled():
+                         logger.warning("Send button found but disabled. Trying to trigger input event again.")
+                         textarea.send_keys(" ")
+                         textarea.send_keys(Keys.BACKSPACE)
+                         time.sleep(0.2)
+                    
+                    if send_btn.is_enabled():
+                        send_btn.click()
+                        logger.success(f"Sent: {msg}")
+                    else:
+                        logger.warning("Send button still disabled. Trying Enter key.")
+                        textarea.send_keys(Keys.ENTER)
+                        logger.success(f"Sent (Enter): {msg}")
                 else:
                     textarea.send_keys(Keys.ENTER)
-                    logger.success(f"Sent (Enter): {msg}")
+                    logger.success(f"Sent (Enter - No Button): {msg}")
             else:
                 # Diagnostics: Check for login popup
                 try:
@@ -220,7 +300,6 @@ class DouyinBot:
                     pass
 
                 title = self.driver.title
-                url = self.driver.current_url
                 logger.warning(f"Chat input not found. Title: '{title}'")
                 
         except Exception as e:
@@ -237,40 +316,58 @@ class DouyinBot:
         self._switch_to_latest_tab()
         
         try:
-            # Try to find the video player element
-            # This is tricky as it varies. Usually a large container.
-            # We can try clicking the center of the screen or a specific element.
-            # Using ActionChains to click at offset or on an element
-            
             logger.info(f"Starting quick like ({count} times)...")
             
             # Locate a safe element to click (the video container)
-            # Often has class 'xgplayer-container' or just body if we are careful
             video_container = None
             try:
                  video_container = self.driver.find_element(By.XPATH, "//div[contains(@class, 'xgplayer-container')]")
             except:
-                # Fallback to body but be careful not to click controls
-                video_container = self.driver.find_element(By.TAG_NAME, "body")
+                try:
+                    video_container = self.driver.find_element(By.TAG_NAME, "video")
+                except:
+                    # Fallback to body
+                    video_container = self.driver.find_element(By.TAG_NAME, "body")
 
-            actions = ActionChains(self.driver)
-            
             for i in range(count):
                 if self.stop_event.is_set():
                     break
                 
-                # Random offset to simulate human clicking different spots? 
-                # Or just click. Douyin likes usually require double click or fast clicks.
-                # We will just click center or near center.
+                # Check if driver is still alive
+                try:
+                    _ = self.driver.current_window_handle
+                except Exception as e:
+                    logger.error("Browser session lost, stopping likes.")
+                    self.stop_event.set()
+                    self.driver = None
+                    break
+
+                # Re-instantiate ActionChains to avoid accumulation/stale state
+                actions = ActionChains(self.driver)
                 
-                if video_container:
-                    # Move to element and click
-                    actions.move_to_element(video_container).click().perform()
-                else:
-                    actions.click().perform()
+                try:
+                    if video_container:
+                        actions.move_to_element(video_container).click().perform()
+                    else:
+                        actions.click().perform()
+                except Exception as click_err:
+                     err_msg = str(click_err)
+                     if "invalid session id" in err_msg or "disconnected" in err_msg:
+                         logger.error("Critical: Browser closed or crashed during like task.")
+                         self.stop_event.set()
+                         self.driver = None
+                         break
+                     
+                     # Just a click failure, try to recover
+                     logger.warning(f"Click failed: {click_err}. Retrying...")
+                     try:
+                         video_container = self.driver.find_element(By.XPATH, "//div[contains(@class, 'xgplayer-container')]")
+                     except:
+                         video_container = self.driver.find_element(By.TAG_NAME, "body")
+                     continue
                     
-                # Very short sleep between clicks
-                time.sleep(random.uniform(0.05, 0.15))
+                # Slower sleep to prevent crash
+                time.sleep(random.uniform(0.15, 0.25)) 
                 
             logger.success(f"Finished sending {count} likes")
             
