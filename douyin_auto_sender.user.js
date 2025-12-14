@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Douyin Auto Sender (抖音直播自动弹幕助手)
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      2.3
 // @description  Automated comment sender for Douyin Live with custom presets and random intervals.
 // @author       AutoTikTokSendComment Project
 // @match        *://*/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log("✅ Douyin Auto Sender V2.5: Script injected successfully on " + location.href);
+    console.log("✅ Douyin Auto Sender V2.3: Script injected successfully on " + location.href);
 
     // Default configuration
     const DEFAULT_CONFIG = {
@@ -36,8 +36,13 @@
     let isRunning = false;
     let isLiking = false;
     let timerId = null;
+    let countdownTimerId = null; // For the visual countdown
     let likeTimerId = null;
     let currentIndex = 0;
+    
+    // For Shuffle Logic
+    let playQueue = [];
+    let queueIndex = 0;
 
     // Load config
     function getConfig() {
@@ -85,6 +90,20 @@
                         <input type="checkbox" id="das-randomize" ${getConfig().randomize ? 'checked' : ''}> 随机发送顺序
                     </label>
                 </div>
+                
+                <!-- Status Display for Countdown & Next Message -->
+                <div class="das-status-display" id="das-status-box" style="display: none;">
+                    <div class="das-status-row">
+                        <span class="das-label">即将发送:</span>
+                        <span id="das-next-msg" class="das-value text-ellipsis">-</span>
+                    </div>
+                    <div class="das-status-row">
+                        <span class="das-label">倒计时:</span>
+                        <span id="das-countdown" class="das-value highlight">0</span>
+                        <span class="das-unit">秒</span>
+                    </div>
+                </div>
+
                 <div class="das-actions">
                     <button id="das-start-btn">开始弹幕</button>
                     <button id="das-like-btn">开始点赞</button>
@@ -102,7 +121,7 @@
                 position: fixed;
                 top: 100px;
                 right: 20px;
-                width: 250px;
+                width: 260px;
                 background: rgba(20, 20, 20, 0.95);
                 color: white;
                 border-radius: 8px;
@@ -153,6 +172,28 @@
                 color: #0f0;
                 font-size: 10px;
             }
+            
+            /* Status Display Styles */
+            .das-status-display {
+                margin-bottom: 10px;
+                padding: 8px;
+                background: #2a2a2a;
+                border-radius: 4px;
+                border: 1px solid #444;
+            }
+            .das-status-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 4px;
+            }
+            .das-status-row:last-child { margin-bottom: 0; }
+            .das-label { color: #aaa; }
+            .das-value { font-weight: bold; color: #fff; max-width: 150px; }
+            .text-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .highlight { color: #00e676; font-size: 14px; }
+            .das-unit { color: #aaa; font-size: 10px; margin-left: 2px; }
+
             .hidden { display: none; }
             #das-minimized-icon {
                 position: fixed;
@@ -183,15 +224,13 @@
         minIcon.title = '打开控制面板';
         minIcon.style.display = 'none';
         minIcon.onclick = () => {
-            // Prevent opening if it was just dragged
             if (minIcon.dataset.dragged === 'true') {
-                minIcon.dataset.dragged = 'false'; // Reset
+                minIcon.dataset.dragged = 'false';
                 return;
             }
             minIcon.style.display = 'none';
             const panel = document.getElementById('das-panel');
             panel.style.display = 'block';
-            // Sync position back to panel if icon was moved
             panel.style.top = minIcon.style.top;
             panel.style.left = minIcon.style.left;
         };
@@ -208,7 +247,6 @@
             const panel = document.getElementById('das-panel');
             panel.style.display = 'none';
             minIcon.style.display = 'flex';
-            // Sync position
             minIcon.style.top = panel.style.top;
             minIcon.style.left = panel.style.left;
         });
@@ -237,18 +275,14 @@
 
     // Like Logic
     function findLikeTarget() {
-        // Priority: .xgplayer-container -> video -> body
-        // The container usually captures clicks for likes
         let el = document.querySelector('.xgplayer-container');
         if (!el) el = document.querySelector('video');
-        // if (!el) el = document.body; 
         return el;
     }
 
     function startLikeLoop() {
         if (!isLiking) return;
         
-        // 策略: 仅使用键盘 Z 键点赞 (用户指定)
         const keyOpts = { 
             key: 'z', 
             code: 'KeyZ', 
@@ -259,17 +293,13 @@
             composed: true
         };
         
-        // 尝试发送给播放器容器，兜底发送给 body
-        // 抖音网页版通常监听 document 或播放器容器的键盘事件
         const target = document.querySelector('.xgplayer-container') || document.body;
         
         target.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
         target.dispatchEvent(new KeyboardEvent('keypress', keyOpts));
         target.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
 
-        // 随机间隔 100ms - 200ms
         const delay = Math.floor(Math.random() * 100) + 100;
-        
         likeTimerId = setTimeout(startLikeLoop, delay);
     }
 
@@ -293,21 +323,17 @@
     // Draggable Logic
     function makeDraggable(elmnt) {
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-        const header = elmnt.querySelector('.das-header') || elmnt; // Header for panel, self for icon
+        const header = elmnt.querySelector('.das-header') || elmnt;
         
         header.onmousedown = dragMouseDown;
 
         function dragMouseDown(e) {
             e = e || window.event;
-            // Prevent default only if not clicking a button/input
             if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.classList.contains('das-toggle')) {
                 e.preventDefault();
                 pos3 = e.clientX;
                 pos4 = e.clientY;
-                
-                // Initialize drag state
                 elmnt.dataset.dragged = 'false';
-                
                 document.onmouseup = closeDragElement;
                 document.onmousemove = elementDrag;
             }
@@ -316,10 +342,7 @@
         function elementDrag(e) {
             e = e || window.event;
             e.preventDefault();
-            
-            // Mark as dragged
             elmnt.dataset.dragged = 'true';
-            
             pos1 = pos3 - e.clientX;
             pos2 = pos4 - e.clientY;
             pos3 = e.clientX;
@@ -336,26 +359,23 @@
 
     // Core Logic
     function findChatInput() {
-        // Try multiple selectors as Douyin updates classes frequently
         const selectors = [
             'textarea.webcast-room__chat_input_editor',
             'textarea[placeholder*="说点什么"]',
             'textarea.xgplayer-input-textarea',
             '.chat-input-container textarea',
-            'div[contenteditable="true"]', // Rich text editor support
-            'textarea' // Fallback to any textarea
+            'div[contenteditable="true"]', 
+            'textarea' 
         ];
 
         for (const s of selectors) {
             const el = document.querySelector(s);
-            // Check if element exists, is enabled, and is visible
             if (el && !el.disabled && el.offsetParent !== null) return el;
         }
         return null;
     }
 
     function findSendButton() {
-         // Priority 1: Specific classes
          const selectors = [
              '.webcast-room__chat_send_btn',
              'button[class*="send_btn"]',
@@ -367,24 +387,23 @@
              if(btn) return btn;
          }
 
-         // Priority 2: Text content "发送"
          const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
          return buttons.find(b => b.textContent.trim().includes('发送'));
     }
 
     function setNativeValue(element, value) {
-        // React/Vue hack to trigger input events properly
-        const valueSetter = Object.getOwnPropertyDescriptor(element, 'value').set;
+        const valueSetter = Object.getOwnPropertyDescriptor(element, 'value');
         const prototype = Object.getPrototypeOf(element);
-        const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
+        const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value');
 
-        if (valueSetter && valueSetter !== prototypeValueSetter) {
-            prototypeValueSetter.call(element, value);
+        if (prototypeValueSetter && prototypeValueSetter.set && valueSetter !== prototypeValueSetter) {
+            prototypeValueSetter.set.call(element, value);
+        } else if (valueSetter && valueSetter.set) {
+            valueSetter.set.call(element, value);
         } else {
-            valueSetter.call(element, value);
+            element.value = value;
         }
 
-        element.value = value;
         element.dispatchEvent(new Event('input', { bubbles: true }));
         element.dispatchEvent(new Event('change', { bubbles: true })); 
     }
@@ -401,40 +420,80 @@
             input.click();
             input.focus();
 
+            // FIX: Clear input first to prevent empty lines or appended text
+            // Only use setNativeValue for input/textarea
+            if (input.tagName.toLowerCase() === 'textarea' || input.tagName.toLowerCase() === 'input') {
+                setNativeValue(input, '');
+            } else {
+                input.textContent = '';
+            }
+            
+            await new Promise(r => setTimeout(r, 100));
+
             // 2. Set Value
             if (input.tagName.toLowerCase() === 'textarea' || input.tagName.toLowerCase() === 'input') {
                 setNativeValue(input, msg);
             } else {
-                // Handle contenteditable div
                 input.textContent = msg;
             }
             
-            // Dispatch multiple events to wake up the UI
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.dispatchEvent(new Event('change', { bubbles: true }));
             
-            // 3. Wait a bit for UI to react
-            await new Promise(r => setTimeout(r, 500));
+            // 3. Wait a bit for UI to react (Increased delay to prevent stuck issues)
+            await new Promise(r => setTimeout(r, 800));
 
             // 4. Try to find Send Button
             let btn = findSendButton();
             
-            if (btn && !btn.disabled && btn.offsetParent !== null) {
-                // Try mouse events sequence
+            // FIX: Retry finding button if disabled or missing
+            if (btn && btn.disabled) {
+                // Wait a bit more if disabled
+                await new Promise(r => setTimeout(r, 500));
+                btn = findSendButton();
+            }
+
+            let sentByButton = false;
+            if (btn && !btn.disabled) {
+                // Remove offsetParent check to allow sending when window is minimized/hidden
                 const mouseOpts = { bubbles: true, cancelable: true, view: window };
                 btn.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+                await new Promise(r => setTimeout(r, 50)); // Small delay between down/up
                 btn.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
                 btn.click();
-                log(`✅ 点击发送: ${msg}`);
-            } else {
-                // Fallback to Enter key sequence
+                sentByButton = true;
+            }
+
+            // 5. Verification & Fallback (Critical for background tabs)
+            // Wait to see if input is cleared (success signal)
+            await new Promise(r => setTimeout(r, 500));
+            
+            const currentVal = (input.value || input.textContent || '').trim();
+            
+            if (currentVal.length > 0) {
+                if (sentByButton) {
+                    log("⚠️ 按钮发送可能失败 (内容未清空)，尝试回车补发...");
+                }
+                
                 const keyOpts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true };
                 input.dispatchEvent(new KeyboardEvent('keydown', keyOpts));
                 input.dispatchEvent(new KeyboardEvent('keypress', keyOpts));
                 input.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
-                log(`✅ 按键发送: ${msg}`);
+                
+                // Final check
+                await new Promise(r => setTimeout(r, 500));
+                const finalVal = (input.value || input.textContent || '').trim();
+                if (finalVal.length > 0) {
+                    log(`❌ 发送失败: 内容仍残留`);
+                    return false;
+                } else {
+                    log(`✅ 按键补发成功: ${msg}`);
+                    return true;
+                }
+            } else {
+                log(`✅ 发送成功: ${msg}`);
+                return true;
             }
-            return true;
         } catch (e) {
             log(`❌ 出错: ${e.message}`);
             return false;
@@ -443,59 +502,170 @@
 
     function toggleRunning() {
         const btn = document.getElementById('das-start-btn');
+        const statusBox = document.getElementById('das-status-box');
+        
         if (isRunning) {
             // Stop
             isRunning = false;
             if (timerId) clearTimeout(timerId);
+            if (countdownTimerId) clearInterval(countdownTimerId);
+            
             btn.textContent = "开始弹幕";
             btn.classList.remove('stop');
+            statusBox.style.display = 'none'; // Hide status
             log("🛑 弹幕停止");
         } else {
             // Start
             const config = saveConfigFromUI();
-            const comments = config.comments.split('\n').filter(line => line.trim() !== '');
+            
+            // Robust parsing: handle \n, \r\n, \r
+            const comments = config.comments
+                .split(/[\r\n]+/)
+                .map(line => line.trim())
+                .filter(line => line !== '');
 
             if (comments.length === 0) {
                 alert("请先输入弹幕内容！");
                 return;
             }
 
+            // Safety Warning if parsing seems wrong (e.g. single long line)
+            if (comments.length === 1 && comments[0].length > 50) {
+                 const confirmSend = confirm(`⚠️ 检测到只有 1 条弹幕，且内容较长（${comments[0].length}字）。\n\n如果这是多条弹幕，请确保使用【回车换行】分隔。\n\n是否继续发送？`);
+                 if (!confirmSend) return;
+            }
+
             isRunning = true;
             btn.textContent = "停止弹幕";
             btn.classList.add('stop');
-            log("🚀 开始弹幕...");
+            statusBox.style.display = 'block'; // Show status
+            log(`🚀 开始弹幕... (共 ${comments.length} 条)`);
 
-            scheduleNext(config, comments);
+            // Initialize Shuffle/Sequence Queue
+            initQueue(config, comments);
+
+            // Get first message
+            const firstMsg = getNextMessage(config, comments);
+            
+            // Start the cycle with the first message
+            performSendCycle(config, comments, firstMsg);
         }
     }
 
-    function scheduleNext(config, comments) {
+    // Shuffle helper
+    function shuffleArray(array) {
+        let currentIndex = array.length, randomIndex;
+        // While there remain elements to shuffle.
+        while (currentIndex != 0) {
+            // Pick a remaining element.
+            randomIndex = Math.floor(Math.random() * currentIndex);
+            currentIndex--;
+            // And swap it with the current element.
+            [array[currentIndex], array[randomIndex]] = [
+                array[randomIndex], array[currentIndex]];
+        }
+        return array;
+    }
+
+    function initQueue(config, comments) {
+        if (config.randomize) {
+            // Clone and shuffle
+            playQueue = shuffleArray([...comments]);
+            queueIndex = 0;
+            log(`🔀 随机模式: 已打乱 ${playQueue.length} 条弹幕顺序`);
+        } else {
+            // Sequence mode
+            playQueue = comments;
+            queueIndex = 0; // Or keep previous index? Better reset for clear start
+            log(`▶️ 顺序模式: 共 ${playQueue.length} 条弹幕`);
+        }
+    }
+
+    function getNextMessage(config, comments) {
+        if (!isRunning) return null;
+
+        if (config.randomize) {
+            // Check if we reached end of shuffle queue
+            if (queueIndex >= playQueue.length) {
+                log("🔄 一轮发送完毕，重新洗牌...");
+                playQueue = shuffleArray([...comments]);
+                queueIndex = 0;
+            }
+            return playQueue[queueIndex++];
+        } else {
+            // Sequence logic
+            const msg = comments[queueIndex];
+            queueIndex = (queueIndex + 1) % comments.length;
+            return msg;
+        }
+    }
+
+    function performSendCycle(config, comments, currentMsg) {
         if (!isRunning) return;
 
-        let msg;
-        if (config.randomize) {
-             msg = comments[Math.floor(Math.random() * comments.length)];
-        } else {
-             msg = comments[currentIndex];
-             currentIndex = (currentIndex + 1) % comments.length;
-        }
-
-        sendComment(msg);
-
-        // Calculate next interval (randomized between min and max)
-        const minMs = parseFloat(config.minInterval) * 1000;
-        const maxMs = parseFloat(config.maxInterval) * 1000;
+        // 1. Prepare NEXT message for display (Pre-fetch)
+        // We need to peek/get the next one NOW to show it in UI
+        // But be careful not to consume it if we use getNextMessage (it increments index)
+        // Actually, our getNextMessage increments index, so calling it means "scheduling it".
+        // Let's get it.
+        const nextMsg = getNextMessage(config, comments);
         
-        // Ensure max >= min
-        const safeMax = Math.max(maxMs, minMs);
-        
-        const nextDelay = Math.floor(Math.random() * (safeMax - minMs + 1) + minMs);
-        
-        log(`⏳ 下次发送: ${(nextDelay/1000).toFixed(1)}秒后`);
+        // 2. Send CURRENT message
+        sendComment(currentMsg).then(() => {
+            if (!isRunning) return;
 
-        timerId = setTimeout(() => {
-            scheduleNext(config, comments);
-        }, nextDelay);
+            // 3. Calculate delay
+            const minMs = parseFloat(config.minInterval) * 1000;
+            const maxMs = parseFloat(config.maxInterval) * 1000;
+            const safeMax = Math.max(maxMs, minMs);
+            const nextDelay = Math.floor(Math.random() * (safeMax - minMs + 1) + minMs);
+
+            // 4. Update UI with NEXT message and start countdown
+            startCountdown(nextDelay, nextMsg, () => {
+                 // 5. Recursion: Next becomes Current
+                 performSendCycle(config, comments, nextMsg);
+            });
+        });
+    }
+
+    function startCountdown(durationMs, nextMsg, callback) {
+        if (!isRunning) return;
+
+        const nextMsgEl = document.getElementById('das-next-msg');
+        const countdownEl = document.getElementById('das-countdown');
+        
+        if (nextMsgEl) nextMsgEl.textContent = nextMsg;
+        
+        let remaining = durationMs / 1000;
+        
+        // Initial Display
+        if (countdownEl) countdownEl.textContent = remaining.toFixed(1);
+        
+        // Update UI
+        if (countdownTimerId) clearInterval(countdownTimerId);
+        
+        const startTime = Date.now();
+        const endTime = startTime + durationMs;
+
+        countdownTimerId = setInterval(() => {
+            if (!isRunning) {
+                clearInterval(countdownTimerId);
+                return;
+            }
+
+            const now = Date.now();
+            const left = Math.max(0, endTime - now);
+            const secondsLeft = (left / 1000).toFixed(1);
+            
+            if (countdownEl) countdownEl.textContent = secondsLeft;
+
+            if (left <= 0) {
+                clearInterval(countdownTimerId);
+                callback();
+            }
+        }, 100);
+        
+        log(`⏳ 下次发送: ${remaining.toFixed(1)}秒后`);
     }
 
     // Auto-init and URL monitoring
@@ -512,7 +682,6 @@
             setTimeout(createUI, 1000);
         });
     } else {
-        // Fallback for older managers
         let lastUrl = location.href;
         new MutationObserver(() => {
             const url = location.href;
